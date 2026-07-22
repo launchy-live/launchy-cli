@@ -1,0 +1,41 @@
+{
+  "name": "launchy-cli",
+  "version": "0.1.0",
+  "description": "Rocket launches from your terminal — the official CLI for the Launchy API, built for humans and AI agents.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "launchy": "dist/main.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "launchy",
+    "rocket",
+    "launches",
+    "space",
+    "cli",
+    "spaceflight",
+    "agent-friendly"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/launchy/launchy-cli.git"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0"
+  }
+}
