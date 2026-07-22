@@ -56,8 +56,9 @@ const EXIT_CODE_DOCS: Record<string, string> = {
 };
 
 const ENV_DOCS: Record<string, string> = {
-  LAUNCHY_API_KEY: "API key for read access (same as `launchy auth login --key`)",
-  LAUNCHY_TOKEN: "User bearer token for account commands",
+  LAUNCHY_API_KEY:
+    "Personal API key, lk_live_… (same as `launchy auth login --key`). Not needed for reads; required for account commands unless a token is set.",
+  LAUNCHY_TOKEN: "User bearer token (Clerk session JWT) — the other way to reach the same identity",
   LAUNCHY_BASE_URL: "Override the API origin (default " + DEFAULT_BASE_URL + ")",
   LAUNCHY_CONFIG_DIR: "Override the config directory (default ~/.config/launchy)",
   NO_COLOR: "Disable colorized output",
@@ -81,16 +82,17 @@ function structuredDocs(commands: Command[]): unknown {
       raw: "`launchy api` prints the server response verbatim (no envelope normalization)",
     },
     auth: {
+      public_reads:
+        "no credential required. launches, providers, sites, rockets, boosters, visibility, timeline, weather and schedule-changes are all readable anonymously.",
       personal_api_key:
         "header X-API-Key: lk_live_… — a per-user key created in the Launchy app. Identifies you, so it satisfies account commands (me/subscribe/corrections) as well as all reads.",
-      application_api_key:
-        "header X-API-Key — a first-party app key. Reads all launch/reference data but carries no user identity, so account commands reject it.",
-      user_token: "header Authorization: Bearer <jwt> — a Clerk session token; equivalent to a personal key for these commands",
+      user_token:
+        "header Authorization: Bearer <jwt> — a Clerk session token; the same identity as a personal key, just a human signed into the app",
       precedence:
         "when both a key and a token are configured the CLI sends both headers; the server resolves the request against the Bearer token, so `launchy whoami` reports auth: user-token in that case",
       plans: "GET /api/me reports is_pro; `launchy whoami` surfaces it as plan: free|pro",
       rate_limits:
-        "the CLI honors Retry-After on 429 (auto-retries waits <=10s) and reports X-RateLimit-* via `launchy limits`",
+        "anonymous reads are rate limited per IP; authenticated requests are rate limited per user. Either way the CLI honors Retry-After on 429 (auto-retries waits <=10s) and reports X-RateLimit-* via `launchy limits`",
     },
     exit_codes: EXIT_CODE_DOCS,
     env: ENV_DOCS,
@@ -181,13 +183,13 @@ export function makeMetaCommands(getAll: () => Command[]): Command[] {
         const rateLimit = ctx.rateLimit ?? null;
         emit(ctx, { data: { plan, rate_limit: rateLimit } }, (w) => {
           const c = colors(ctx);
-          w(`plan: ${plan ?? c.dim("unknown — no user token (see launchy auth login)")}`);
+          w(`plan: ${plan ?? c.dim("unknown — not signed in (see launchy auth login)")}`);
           if (rateLimit) {
             if (rateLimit.limit !== undefined) w(`rate limit: ${rateLimit.limit} requests/window`);
             if (rateLimit.remaining !== undefined) w(`remaining:  ${rateLimit.remaining}`);
             if (rateLimit.reset !== undefined) w(`resets:     ${formatReset(rateLimit.reset)}`);
           } else {
-            w(c.dim("The server is not advertising rate limits for these credentials."));
+            w(c.dim("The server is not advertising rate limits for this request."));
           }
           w(c.dim("On 429 the CLI honors Retry-After automatically (waits up to 10s)."));
         });
@@ -195,10 +197,10 @@ export function makeMetaCommands(getAll: () => Command[]): Command[] {
     },
     {
       path: ["api"],
-      summary: "Raw authenticated request to any endpoint (escape hatch)",
+      summary: "Raw request to any endpoint (escape hatch)",
       description:
-        "Sends your configured credentials and prints the server response verbatim. " +
-        "Useful for endpoints newer than this CLI.",
+        "Sends any configured credentials and prints the server response verbatim. " +
+        "Public endpoints work without credentials. Useful for endpoints newer than this CLI.",
       positionals: [
         { name: "method", required: true, description: "GET | POST | PUT | PATCH | DELETE" },
         { name: "path", required: true, description: "Endpoint path starting with /, query string allowed" },

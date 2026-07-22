@@ -24,12 +24,13 @@ before(async () => {
       res.writeHead(status, { "content-type": "application/json", ...headers });
       res.end(JSON.stringify(body));
     };
+    // The server knows exactly two credentials, and both identify the same
+    // user. Anything else in X-API-Key is not a credential — it is ignored,
+    // and the caller is simply anonymous. Public reads need neither.
     const personalKey = req.headers["x-api-key"] === "lk_live_personalkey123";
-    const authedByKey = req.headers["x-api-key"] === "testkey" || personalKey;
     const authedByUser = req.headers.authorization === "Bearer usertok";
 
     if (url.pathname === "/api/me") {
-      // A personal key identifies a user exactly as a session token does.
       if (!authedByUser && !personalKey)
         return send(401, { error: "Unauthorized", message: "user identity required", code: "UNAUTHORIZED" });
       return send(200, {
@@ -41,8 +42,8 @@ before(async () => {
         precision_mode: "expert",
       });
     }
-    if (!authedByKey && !authedByUser) {
-      return send(401, { error: "Unauthorized", message: "credentials required", code: "UNAUTHORIZED" });
+    if (url.pathname === "/api/launches/lch_abc123/subscribe" && !authedByUser && !personalKey) {
+      return send(401, { error: "Unauthorized", message: "user identity required", code: "UNAUTHORIZED" });
     }
     if (url.pathname === "/api/launches") {
       return send(
@@ -81,7 +82,9 @@ function runCli(args, env = {}) {
         env: {
           ...process.env,
           LAUNCHY_BASE_URL: baseUrl,
-          LAUNCHY_API_KEY: "testkey",
+          // The default is the new normal: no credentials at all. Tests that
+          // need an identity opt in explicitly.
+          LAUNCHY_API_KEY: "",
           LAUNCHY_TOKEN: "",
           LAUNCHY_CONFIG_DIR: mkdtempSync(join(tmpdir(), "launchy-test-")),
           NO_COLOR: "1",
@@ -97,12 +100,27 @@ function runCli(args, env = {}) {
   });
 }
 
-test("launches list emits JSON envelope when piped", async () => {
-  const r = await runCli(["launches", "list"]);
+test("launches list works with no credentials configured at all", async () => {
+  // The headline of the auth simplification: public reads are anonymous.
+  const r = await runCli(["launches", "list"], { LAUNCHY_API_KEY: "", LAUNCHY_TOKEN: "" });
   assert.equal(r.code, 0, r.stderr);
   const body = JSON.parse(r.stdout);
   assert.equal(body.data[0].id, "lch_abc123");
   assert.equal(body.pagination.total, 1);
+});
+
+test("launches list emits JSON envelope when piped", async () => {
+  const r = await runCli(["launches", "list"], { LAUNCHY_API_KEY: "lk_live_personalkey123" });
+  assert.equal(r.code, 0, r.stderr);
+  const body = JSON.parse(r.stdout);
+  assert.equal(body.data[0].id, "lch_abc123");
+  assert.equal(body.pagination.total, 1);
+});
+
+test("a read with an unrecognized X-API-Key still succeeds (the server ignores it)", async () => {
+  const r = await runCli(["launches", "get", "lch_abc123"], { LAUNCHY_API_KEY: "testkey" });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).data.id, "lch_abc123");
 });
 
 test("ls alias resolves to launches list", async () => {
@@ -128,12 +146,24 @@ test("whoami with a user token reports plan pro", async () => {
   assert.equal(body.data.profile.email, "scott@example.com");
 });
 
-test("whoami with an application key explains the identity gap", async () => {
+test("whoami with no credentials reports anonymous and says reads still work", async () => {
   const r = await runCli(["whoami"]);
   assert.equal(r.code, 0, r.stderr);
   const body = JSON.parse(r.stdout);
-  assert.equal(body.data.auth, "app-api-key");
+  assert.equal(body.data.auth, null);
   assert.equal(body.data.plan, null);
+  assert.match(body.data.note, /read/i);
+});
+
+test("whoami calls an unrecognized X-API-Key unrecognized, not an app key", async () => {
+  const r = await runCli(["whoami"], { LAUNCHY_API_KEY: "testkey" });
+  assert.equal(r.code, 0, r.stderr);
+  const body = JSON.parse(r.stdout);
+  assert.equal(body.data.auth, "unrecognized-api-key");
+  assert.equal(body.data.plan, null);
+  assert.equal(body.data.credential_recognized, false);
+  assert.match(body.data.note, /not a recognized credential/i);
+  assert.doesNotMatch(JSON.stringify(body), /app.?api.?key|application key/i);
 });
 
 test("whoami with a personal key resolves the user and plan", async () => {
@@ -182,16 +212,28 @@ test("a personal key satisfies account commands", async () => {
   assert.equal(JSON.parse(r.stdout).data.subscribed, true);
 });
 
-test("an application key is refused for account commands, without a network call", async () => {
-  const r = await runCli(["me", "get"]);
+test("an unrecognized key is refused for account commands, without a network call", async () => {
+  const r = await runCli(["me", "get"], { LAUNCHY_API_KEY: "testkey" });
   assert.equal(r.code, 3);
   const err = JSON.parse(r.stderr);
   assert.equal(err.error.code, "AUTH_REQUIRED");
   assert.match(err.error.message, /not a personal key/);
 });
 
-test("user-scoped command without token fails fast with exit 3", async () => {
-  const r = await runCli(["launches", "subscribe", "lch_abc123"]);
+test("account command with zero credentials fails fast with exit 3, no network call", async () => {
+  const r = await runCli(["launches", "subscribe", "lch_abc123"], {
+    // Point at a dead port: reaching the network at all would be a NETWORK
+    // error (exit 6), so exit 3 proves the guard short-circuits locally.
+    LAUNCHY_BASE_URL: "http://127.0.0.1:1",
+  });
+  assert.equal(r.code, 3);
+  const err = JSON.parse(r.stderr);
+  assert.equal(err.error.code, "AUTH_REQUIRED");
+  assert.match(err.error.message, /personal API key or user token/);
+});
+
+test("me get with zero credentials fails fast with exit 3", async () => {
+  const r = await runCli(["me", "get"], { LAUNCHY_BASE_URL: "http://127.0.0.1:1" });
   assert.equal(r.code, 3);
   assert.equal(JSON.parse(r.stderr).error.code, "AUTH_REQUIRED");
 });
@@ -228,26 +270,36 @@ test("limits renders a delta-seconds reset as a future time, not 1970", async ()
   assert.ok(delta > -60_000 && delta < 180_000, `reset should be ~1 minute away, got ${line}`);
 });
 
-test("auth login --key verifies against the API and writes chmod-600 config", async () => {
+test("auth login --key verifies identity against the API and writes chmod-600 config", async () => {
   const configDir = mkdtempSync(join(tmpdir(), "launchy-login-"));
-  const r = await runCli(["auth", "login", "--key", "testkey"], {
+  const r = await runCli(["auth", "login", "--key", "lk_live_personalkey123"], {
     LAUNCHY_CONFIG_DIR: configDir,
-    LAUNCHY_API_KEY: "",
   });
   assert.equal(r.code, 0, r.stderr);
   const cfgPath = join(configDir, "config.json");
   const cfg = JSON.parse(readFileSync(cfgPath, "utf8"));
-  assert.equal(cfg.api_key, "testkey");
+  assert.equal(cfg.api_key, "lk_live_personalkey123");
   assert.equal(statSync(cfgPath).mode & 0o777, 0o600);
 });
 
-test("auth login with a bad key refuses to save", async () => {
+test("auth login with a revoked personal key refuses to save", async () => {
   const configDir = mkdtempSync(join(tmpdir(), "launchy-badlogin-"));
-  const r = await runCli(["auth", "login", "--key", "wrongkey"], {
+  const r = await runCli(["auth", "login", "--key", "lk_live_revokedkey999"], {
     LAUNCHY_CONFIG_DIR: configDir,
-    LAUNCHY_API_KEY: "",
   });
   assert.equal(r.code, 3);
+  assert.throws(() => readFileSync(join(configDir, "config.json")));
+});
+
+test("auth login with a key that is not a personal key refuses to save", async () => {
+  // Reads are public, so a read can no longer verify a credential — login
+  // checks identity, which a non-lk_live_ string can never establish.
+  const configDir = mkdtempSync(join(tmpdir(), "launchy-notakey-"));
+  const r = await runCli(["auth", "login", "--key", "wrongkey"], {
+    LAUNCHY_CONFIG_DIR: configDir,
+  });
+  assert.equal(r.code, 3);
+  assert.match(JSON.parse(r.stderr).error.message, /not a personal key/);
   assert.throws(() => readFileSync(join(configDir, "config.json")));
 });
 
@@ -265,4 +317,17 @@ test("docs --json is a complete machine-readable reference", async () => {
   assert.ok(docs.exit_codes["5"]);
   const listCmd = docs.commands.find((c) => c.name === "launches list");
   assert.ok(listCmd.flags.some((f) => f.name === "--provider"));
+});
+
+test("docs --json describes the two-credential model and anonymous reads", async () => {
+  const r = await runCli(["docs", "--json"]);
+  assert.equal(r.code, 0, r.stderr);
+  const { auth } = JSON.parse(r.stdout);
+  assert.equal(auth.application_api_key, undefined);
+  assert.match(auth.public_reads, /no credential required/i);
+  assert.match(auth.personal_api_key, /lk_live_/);
+  assert.ok(auth.user_token);
+  assert.ok(auth.precedence);
+  assert.match(auth.rate_limits, /per IP/i);
+  assert.match(auth.rate_limits, /per user/i);
 });

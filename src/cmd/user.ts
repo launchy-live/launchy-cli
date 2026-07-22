@@ -74,9 +74,13 @@ export const userCommands: Command[] = [
     summary: "Show who you are authenticated as, and your plan (free/pro)",
     run: async (ctx) => {
       if (!ctx.token && !ctx.apiKey) {
-        emit(ctx, { data: { auth: null, plan: null } }, (w) =>
-          w("Not authenticated. Run `launchy auth login`."),
-        );
+        const note =
+          "Not authenticated. Reads (launches, providers, sites, rockets, visibility…) work anyway — they need no credential and are rate limited by IP. Sign in with `launchy auth login` for account commands (me, subscribe, corrections).";
+        emit(ctx, { data: { auth: null, plan: null, note } }, (w) => {
+          const c = colors(ctx);
+          w("Not authenticated — reads still work.");
+          w(c.dim("For account commands (me, subscribe, corrections) run `launchy auth login`."));
+        });
         return;
       }
 
@@ -87,11 +91,11 @@ export const userCommands: Command[] = [
         ? "user-token"
         : identifiesUser(ctx)
           ? "personal-api-key"
-          : "app-api-key";
+          : "unrecognized-api-key";
 
       // A personal key identifies a user just as a session token does, so ask
       // the server rather than assuming. Only fall back if it declines.
-      if (authKind !== "app-api-key") {
+      if (authKind !== "unrecognized-api-key") {
         let profile: any;
         try {
           profile = profileOf(await api(ctx, "GET", "/api/me", { auth: "user" }));
@@ -135,19 +139,23 @@ export const userCommands: Command[] = [
         return;
       }
 
+      // The only API key the server recognizes is a personal key. Anything else
+      // in X-API-Key is not a credential at all — say so plainly rather than
+      // implying it buys some lesser level of access.
       emit(
         ctx,
         {
           data: {
             auth: authKind,
             plan: null,
-            note: "This key does not look like a personal key (lk_live_…), so the CLI did not ask the server to identify you. Account commands need a personal key created in the Launchy app, or a user token.",
+            credential_recognized: false,
+            note: "The configured X-API-Key is not a recognized credential — personal keys start with `lk_live_`. The server ignores it, so you are effectively anonymous: reads still work (rate limited by IP), account commands do not. Create a personal key in the Launchy app and run `launchy auth login --key <key>`.",
           },
         },
         (w) => {
           const c = colors(ctx);
-          w(`Authenticated with an API key that carries no user identity the CLI can see.`);
-          w(c.dim("For account commands, create a personal key in the Launchy app and run `launchy auth login --key <key>`."));
+          w("The configured X-API-Key is not a recognized credential — it will be ignored by the server.");
+          w(c.dim("Personal keys start with `lk_live_`. Reads work without any credential; account commands need a personal key or `launchy auth login`."));
         },
       );
     },

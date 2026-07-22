@@ -38,6 +38,8 @@ npm run typecheck
 
 ## Backend counterpart
 
-The server (`launchy-agents` repo) does not yet issue per-user API keys or send
-rate-limit headers. `docs/backend-requirements.md` specs what the CLI already
-supports the moment the server ships it. Don't work around the gap client-side.
+The server (`launchy-agents` repo) issues per-user API keys (`lk_live_…`) but
+does not yet send rate-limit headers. Public reads need no credential at all;
+only account routes need identity, and the old shared app key no longer exists.
+`docs/backend-requirements.md` specs what the CLI already supports the moment
+the server ships it. Don't work around the gap client-side.

@@ -21,19 +21,27 @@ Requires Node 18.17+.
 
 ## Quickstart
 
+No signup, no key, no config — launch data is public:
+
 ```bash
-launchy auth login          # store your API key (verified before saving)
 launchy next                # the next launch, with countdown
 launchy ls --provider SpaceX
 launchy launches get <id>   # full detail: timeline, weather, narrative, slip history
 launchy visibility nearby --lat 28.4 --lng -80.6   # what can I see from here?
+launchy providers list      # also: sites, rockets, boosters
 ```
 
 Every command has `--help` with examples. `launchy docs` prints the complete reference.
 
-## Authentication
+## Signing in (only for account commands)
 
-Create a **personal API key** in the Launchy app (Account → API keys). It starts with `lk_live_` and identifies you, so it unlocks everything the CLI can do — reads *and* account commands:
+Everything above works anonymously. You only need credentials for the handful of commands that act on *your account*:
+
+```
+me get · me set · whoami · launches subscribe/unsubscribe · corrections submit
+```
+
+Create a **personal API key** in the Launchy app (Account → API keys). It starts with `lk_live_` and is you, in program form:
 
 ```bash
 # keep secrets out of shell history — "-" reads from stdin
@@ -45,11 +53,12 @@ export LAUNCHY_API_KEY=lk_live_…
 
 The key is shown once, at creation, and can't be retrieved afterwards — only a hash is stored server-side. Revoke it any time from the same screen; revocation takes effect on the next request.
 
-| Credential | Header | Unlocks |
+There are exactly two credentials, and they are two routes to the same identity:
+
+| Credential | Header | What it is |
 |---|---|---|
-| **Personal API key** (`lk_live_…`) | `X-API-Key` | Everything: all reads, plus `me`, `whoami`, subscribe, corrections |
-| **User token** (Clerk JWT) | `Authorization: Bearer <jwt>` | Same as a personal key; short-lived, mostly useful for scripted app sessions |
-| **Application key** | `X-API-Key` | Reads only — it authenticates an app, not a person, so account commands reject it |
+| **Personal API key** (`lk_live_…`) | `X-API-Key` | A program acting for you. Unlocks the account commands (reads never needed it). |
+| **User token** (Clerk JWT) | `Authorization: Bearer <jwt>` | A human signed into the app. Same identity, short-lived; mostly useful for scripted app sessions. |
 
 For safety, personal keys cannot create or revoke other keys; that requires signing in to the app. A leaked key can't make itself permanent.
 
@@ -65,7 +74,7 @@ scott@example.com  [PRO]
 ```
 
 - **Free** and **Pro** share the same command surface; plans differ in rate limits and (in the apps) expert-mode features.
-- Rate limits are enforced and communicated **by the server** via standard `X-RateLimit-*` and `Retry-After` headers — `launchy limits` shows yours live. This CLI does not gate features client-side; an open-source client that pretends to enforce limits isn't enforcing anything.
+- Rate limits are enforced and communicated **by the server** via standard `X-RateLimit-*` and `Retry-After` headers — `launchy limits` shows yours live. Anonymous reads are limited per IP; signed-in requests per user. This CLI does not gate features client-side; an open-source client that pretends to enforce limits isn't enforcing anything.
 - On `429` the CLI automatically honors `Retry-After` (waits up to 10s, then surfaces the error with `retry_after_seconds`).
 
 ## For AI agents 🤖
@@ -87,7 +96,8 @@ This CLI is designed to be driven by agents:
   | 6 | network failure (after retries) |
 
 - **One-shot self-description**: `launchy docs --json` returns every command, flag, exit code, and env var as JSON. Feed it to your agent once and it knows the whole tool.
-- **Escape hatch**: `launchy api GET '/api/launches?limit=5'` sends an authenticated raw request to any endpoint — including ones newer than this CLI — and prints the response verbatim.
+- **No credentials needed**: every read command works out of the box — `npx launchy-cli next` with an empty environment returns data.
+- **Escape hatch**: `launchy api GET '/api/launches?limit=5'` sends a raw request (with your credentials, if any) to any endpoint — including ones newer than this CLI — and prints the response verbatim.
 - **No prompts in pipelines**: interactive prompts only ever occur on a TTY; non-interactive invocations fail fast with a structured error instead of hanging.
 - **Quiet data channel**: informational notes go to stderr, never mixed into stdout data. `--quiet` silences them.
 - **Auto-pagination**: `--all` on list commands walks pages for you (bounded at 5,000 rows, with a note when truncated).
@@ -113,8 +123,8 @@ Shortcuts: `launchy next`, `launchy ls`.
 
 | Environment variable | Purpose |
 |---|---|
-| `LAUNCHY_API_KEY` | API key |
-| `LAUNCHY_TOKEN` | User bearer token |
+| `LAUNCHY_API_KEY` | Personal API key (`lk_live_…`) — account commands only; reads don't need it |
+| `LAUNCHY_TOKEN` | User bearer token (Clerk session JWT) |
 | `LAUNCHY_BASE_URL` | Override API origin (default `https://api.launchy.live`) |
 | `LAUNCHY_CONFIG_DIR` | Override config directory (default `~/.config/launchy`) |
 | `NO_COLOR` | Disable colors |

@@ -5,9 +5,13 @@ export interface RequestOpts {
   query?: Record<string, unknown>;
   body?: unknown;
   /**
-   * "any"  — API key or user token, whichever is configured (server accepts either).
-   * "user" — requires a user bearer token (per-user routes reject key-only auth).
-   * "none" — no credentials required (e.g. /health).
+   * "any"  — public data. No credential is required; whatever is configured is
+   *          still sent, so an authenticated caller gets per-user rate limits
+   *          instead of per-IP ones.
+   * "user" — account routes (/api/me, subscribe, corrections, /api/keys). Needs
+   *          an identity: a personal API key (lk_live_…) or a session token.
+   * "none" — same as "any"; kept for call sites that mean "don't reason about
+   *          auth at all" (the raw `launchy api` escape hatch).
    */
   auth?: "any" | "user" | "none";
 }
@@ -63,22 +67,16 @@ export async function api<T = any>(
       EXIT.AUTH,
     );
   }
-  if (auth !== "none" && !ctx.token && !ctx.apiKey) {
-    throw new CliError(
-      "AUTH_REQUIRED",
-      "no credentials configured. Run `launchy auth login` or set LAUNCHY_API_KEY / LAUNCHY_TOKEN.",
-      EXIT.AUTH,
-    );
-  }
 
   const url = new URL(ctx.baseUrl + path);
   for (const [k, v] of Object.entries(opts.query ?? {})) {
     if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
   }
 
-  // Both credentials are sent when both are configured; the server resolves the
-  // request against the Bearer token when it is present (strongest identity
-  // wins), which is why `whoami` names the token in that case.
+  // Public reads work with no credentials at all — they are then rate limited
+  // by IP. Both credentials are sent when both are configured; the server
+  // resolves the request against the Bearer token when it is present (strongest
+  // identity wins), which is why `whoami` names the token in that case.
   const headers: Record<string, string> = { accept: "application/json" };
   if (ctx.token) headers.authorization = `Bearer ${ctx.token}`;
   if (ctx.apiKey) headers["x-api-key"] = ctx.apiKey;

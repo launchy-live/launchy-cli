@@ -44,10 +44,11 @@ export const authCommands: Command[] = [
     path: ["auth", "login"],
     summary: "Store credentials (~/.config/launchy/config.json, chmod 600) after verifying them",
     description:
-      "Provide an API key (--key) for read access, a user token (--token) for account commands, or both. " +
+      "Reads need no credentials at all — sign in only for account commands (me, subscribe, corrections). " +
+      "Provide a personal API key (--key, lk_live_…) or a user token (--login-token), or both. " +
       'Pass "-" as the value to read the secret from stdin so it never lands in shell history.',
     flags: {
-      key: { type: "string", valueName: "key", description: 'API key ("-" reads stdin)' },
+      key: { type: "string", valueName: "key", description: 'Personal API key, lk_live_… ("-" reads stdin)' },
       "login-token": { type: "string", valueName: "jwt", description: 'User bearer token ("-" reads stdin)' },
     },
     examples: [
@@ -68,7 +69,7 @@ export const authCommands: Command[] = [
         }
         const rl = createInterface({ input: process.stdin, output: process.stderr });
         try {
-          key = (await rl.question("Launchy API key (leave empty to skip): ")).trim() || undefined;
+          key = (await rl.question("Launchy personal API key, lk_live_… (leave empty to skip): ")).trim() || undefined;
           token = (await rl.question("User bearer token (leave empty to skip): ")).trim() || undefined;
         } finally {
           rl.close();
@@ -77,9 +78,12 @@ export const authCommands: Command[] = [
       }
 
       // Verify before persisting, using only the credential being saved.
+      // Reads are public now, so a read proves nothing about a credential —
+      // both a key and a token are only meaningful as an identity, so both are
+      // verified against the identity route.
       if (key) {
         const verifyCtx: Ctx = { ...ctx, apiKey: key, token: undefined };
-        await api(verifyCtx, "GET", "/api/launches", { query: { limit: 1 } });
+        await api(verifyCtx, "GET", "/api/me", { auth: "user" });
       }
       if (token) {
         const verifyCtx: Ctx = { ...ctx, token, apiKey: undefined };

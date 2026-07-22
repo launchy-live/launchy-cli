@@ -7,8 +7,10 @@ export const DEFAULT_BASE_URL = "https://api.launchy.live";
 export const USER_KEY_PREFIX = "lk_live_";
 
 /**
- * Whether the configured credentials identify a specific user. Per-user API
- * keys do; the first-party app key does not, and neither does no credential.
+ * Whether the configured credentials identify a specific user. There are only
+ * two credentials, and both identify one: a personal API key (`lk_live_…`) and
+ * a Clerk session token. Anything else — no credential, or a string that is not
+ * a personal key — does not, and only account commands need identity at all.
  */
 export function identifiesUser(ctx: Pick<Ctx, "token" | "apiKey">): boolean {
   return Boolean(ctx.token || ctx.apiKey?.startsWith(USER_KEY_PREFIX));
