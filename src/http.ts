@@ -76,6 +76,9 @@ export async function api<T = any>(
     if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
   }
 
+  // Both credentials are sent when both are configured; the server resolves the
+  // request against the Bearer token when it is present (strongest identity
+  // wins), which is why `whoami` names the token in that case.
   const headers: Record<string, string> = { accept: "application/json" };
   if (ctx.token) headers.authorization = `Bearer ${ctx.token}`;
   if (ctx.apiKey) headers["x-api-key"] = ctx.apiKey;

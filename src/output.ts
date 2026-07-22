@@ -117,17 +117,24 @@ export function dynamicCols(
   maxCols = 6,
 ): Col[] {
   const keys: string[] = [];
+  const seen = new Set<string>();
+  const add = (k: string): void => {
+    if (seen.has(k)) return;
+    seen.add(k);
+    keys.push(k);
+  };
   // `id` is the handle every follow-up command takes, so it leads when present
-  // rather than landing wherever key iteration happens to put it.
-  if (rows.some((r) => isScalar(r.id))) keys.push("id");
+  // rather than landing wherever key iteration happens to put it. Callers
+  // routinely list "id" first in `preferred` too — that must not double it up.
+  if (rows.some((r) => isScalar(r.id))) add("id");
   for (const k of preferred) {
     if (keys.length >= maxCols) break;
-    if (rows.some((r) => isScalar(r[k]))) keys.push(k);
+    if (rows.some((r) => isScalar(r[k]))) add(k);
   }
   for (const r of rows) {
     for (const [k, v] of Object.entries(r)) {
       if (keys.length >= maxCols) break;
-      if (!keys.includes(k) && isScalar(v)) keys.push(k);
+      if (isScalar(v)) add(k);
     }
   }
   return keys.map((k) => ({ key: k, label: k }));

@@ -15,15 +15,32 @@ export function cliVersion(): string {
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 
 /**
- * X-RateLimit-Reset is conventionally epoch seconds, which is unreadable on
- * screen. Render it as a clock time plus the wait, tolerating an ISO value
- * from servers that send one instead.
+ * Smallest value treated as an epoch-seconds timestamp (2001-09-09). Anything
+ * smaller is a delta in seconds — the other widely used form of
+ * X-RateLimit-Reset ("60" meaning "in a minute", not "in 1970").
  */
-function formatReset(reset: string): string {
-  const epoch = Number(reset);
-  const ms = Number.isFinite(epoch) ? epoch * 1000 : Date.parse(reset);
+const EPOCH_SECONDS_FLOOR = 1_000_000_000;
+
+/**
+ * X-RateLimit-Reset comes in two shapes in the wild: epoch seconds, and
+ * seconds-until-reset. Both are unreadable raw, so render a clock time plus
+ * the wait — disambiguating by magnitude, tolerating an ISO value from servers
+ * that send one, and falling back to the verbatim header when it is neither.
+ */
+export function formatReset(reset: string, now: number = Date.now()): string {
+  const trimmed = reset.trim();
+  const n = trimmed === "" ? Number.NaN : Number(trimmed);
+  let ms: number;
+  if (Number.isFinite(n)) {
+    // A negative reset is not a timestamp, a delta, or a date — and Date.parse
+    // would happily read "-5" as a year. Leave it exactly as the server sent it.
+    if (n < 0) return reset;
+    ms = n >= EPOCH_SECONDS_FLOOR ? n * 1000 : now + n * 1000;
+  } else {
+    ms = Date.parse(trimmed);
+  }
   if (!Number.isFinite(ms)) return reset;
-  const seconds = Math.max(0, Math.round((ms - Date.now()) / 1000));
+  const seconds = Math.max(0, Math.round((ms - now) / 1000));
   const relative = seconds >= 60 ? `in ${Math.round(seconds / 60)}m` : `in ${seconds}s`;
   return `${shortDate(new Date(ms).toISOString())} (${relative})`;
 }
@@ -69,6 +86,8 @@ function structuredDocs(commands: Command[]): unknown {
       application_api_key:
         "header X-API-Key — a first-party app key. Reads all launch/reference data but carries no user identity, so account commands reject it.",
       user_token: "header Authorization: Bearer <jwt> — a Clerk session token; equivalent to a personal key for these commands",
+      precedence:
+        "when both a key and a token are configured the CLI sends both headers; the server resolves the request against the Bearer token, so `launchy whoami` reports auth: user-token in that case",
       plans: "GET /api/me reports is_pro; `launchy whoami` surfaces it as plan: free|pro",
       rate_limits:
         "the CLI honors Retry-After on 429 (auto-retries waits <=10s) and reports X-RateLimit-* via `launchy limits`",

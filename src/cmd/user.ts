@@ -1,5 +1,5 @@
 import { identifiesUser, type Ctx } from "../context.js";
-import { UsageError } from "../errors.js";
+import { ApiError, CliError, UsageError } from "../errors.js";
 import { api } from "../http.js";
 import { colors, emit, renderObject, shortDate, type Write } from "../output.js";
 import type { Command } from "../registry.js";
@@ -80,6 +80,9 @@ export const userCommands: Command[] = [
         return;
       }
 
+      // When both a token and a key are configured the CLI sends both, and the
+      // server resolves the request against the Bearer token (strongest
+      // identity wins) — so a token, when present, is what `auth` names.
       const authKind = ctx.token
         ? "user-token"
         : identifiesUser(ctx)
@@ -89,7 +92,39 @@ export const userCommands: Command[] = [
       // A personal key identifies a user just as a session token does, so ask
       // the server rather than assuming. Only fall back if it declines.
       if (authKind !== "app-api-key") {
-        const profile = profileOf(await api(ctx, "GET", "/api/me", { auth: "user" }));
+        let profile: any;
+        try {
+          profile = profileOf(await api(ctx, "GET", "/api/me", { auth: "user" }));
+        } catch (err) {
+          // whoami is a diagnostic: a credential the server rejects is an
+          // answer, not a crash. Report what is configured and why it failed,
+          // and still exit 0 so scripts can read the envelope.
+          const status = err instanceof ApiError ? err.status : undefined;
+          const code = err instanceof CliError ? err.code : "ERROR";
+          const message = err instanceof Error ? err.message : String(err);
+          const rejected = status === 401 || status === 403;
+          const note = rejected
+            ? `The configured ${authKind} was rejected by the server. Check it with \`launchy auth status\`, then re-run \`launchy auth login\`.`
+            : `Could not verify the configured ${authKind} (${message}). Plan is unknown.`;
+          emit(
+            ctx,
+            {
+              data: {
+                auth: authKind,
+                plan: null,
+                ...(rejected ? { credential_rejected: true } : {}),
+                error: { code, message, ...(status !== undefined ? { status } : {}) },
+                note,
+              },
+            },
+            (w) => {
+              const c = colors(ctx);
+              w(`${c.bold(authKind)}  [${c.red(rejected ? "REJECTED" : "UNVERIFIED")}]`);
+              w(c.dim(note));
+            },
+          );
+          return;
+        }
         const plan = planOf(profile);
         emit(ctx, { data: { auth: authKind, plan, profile } }, (w) => {
           const c = colors(ctx);
@@ -106,12 +141,12 @@ export const userCommands: Command[] = [
           data: {
             auth: authKind,
             plan: null,
-            note: "This key authenticates an application, not a user. Account commands need a personal key (lk_live_…) created in the Launchy app, or a user token.",
+            note: "This key does not look like a personal key (lk_live_…), so the CLI did not ask the server to identify you. Account commands need a personal key created in the Launchy app, or a user token.",
           },
         },
         (w) => {
           const c = colors(ctx);
-          w(`Authenticated with an ${c.bold("application API key")} (no user identity).`);
+          w(`Authenticated with an API key that carries no user identity the CLI can see.`);
           w(c.dim("For account commands, create a personal key in the Launchy app and run `launchy auth login --key <key>`."));
         },
       );

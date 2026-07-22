@@ -48,7 +48,8 @@ before(async () => {
       return send(
         200,
         { data: [LAUNCH], pagination: { offset: 0, limit: 20, total: 1 } },
-        { "x-ratelimit-limit": "60", "x-ratelimit-remaining": "59" },
+        // "60" here is the delta-seconds form of X-RateLimit-Reset.
+        { "x-ratelimit-limit": "60", "x-ratelimit-remaining": "59", "x-ratelimit-reset": "60" },
       );
     }
     if (url.pathname === "/api/launches/lch_abc123") {
@@ -144,6 +145,35 @@ test("whoami with a personal key resolves the user and plan", async () => {
   assert.equal(body.data.profile.email, "scott@example.com");
 });
 
+test("whoami reports a rejected personal key instead of hard-failing", async () => {
+  const r = await runCli(["whoami"], { LAUNCHY_API_KEY: "lk_live_revokedkey999" });
+  assert.equal(r.code, 0, r.stderr);
+  const body = JSON.parse(r.stdout);
+  assert.equal(body.data.auth, "personal-api-key");
+  assert.equal(body.data.plan, null);
+  assert.equal(body.data.credential_rejected, true);
+  assert.equal(body.data.error.status, 401);
+  assert.match(body.data.note, /rejected/i);
+});
+
+test("whoami reports a rejected user token instead of hard-failing", async () => {
+  const r = await runCli(["whoami"], { LAUNCHY_TOKEN: "badtok", LAUNCHY_API_KEY: "" });
+  assert.equal(r.code, 0, r.stderr);
+  const body = JSON.parse(r.stdout);
+  assert.equal(body.data.auth, "user-token");
+  assert.equal(body.data.plan, null);
+  assert.equal(body.data.credential_rejected, true);
+});
+
+test("whoami names the token when both credentials are configured (server prefers Bearer)", async () => {
+  const r = await runCli(["whoami"], {
+    LAUNCHY_TOKEN: "usertok",
+    LAUNCHY_API_KEY: "lk_live_personalkey123",
+  });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).data.auth, "user-token");
+});
+
 test("a personal key satisfies account commands", async () => {
   const r = await runCli(["launches", "subscribe", "lch_abc123"], {
     LAUNCHY_API_KEY: "lk_live_personalkey123",
@@ -180,6 +210,22 @@ test("limits surfaces server rate-limit headers", async () => {
   const body = JSON.parse(r.stdout);
   assert.equal(body.data.rate_limit.limit, 60);
   assert.equal(body.data.rate_limit.remaining, 59);
+  assert.equal(body.data.rate_limit.reset, "60");
+});
+
+test("limits renders a delta-seconds reset as a future time, not 1970", async () => {
+  const r = await runCli(["limits", "--plain"]);
+  assert.equal(r.code, 0, r.stderr);
+  assert.doesNotMatch(r.stdout, /1970/);
+  const line = r.stdout.split("\n").find((l) => l.startsWith("resets:"));
+  assert.ok(line, `no resets line in:\n${r.stdout}`);
+  assert.match(line, /\(in (1m|60s|59s)\)/);
+  const stamp = /(\d{4}-\d{2}-\d{2} \d{2}:\d{2})Z/.exec(line);
+  assert.ok(stamp, line);
+  // Rendered to minute precision, so allow a minute of slack either side of
+  // "about a minute from now" — the bug rendered 1970, which is nowhere near.
+  const delta = Date.parse(stamp[1] + "Z") - Date.now();
+  assert.ok(delta > -60_000 && delta < 180_000, `reset should be ~1 minute away, got ${line}`);
 });
 
 test("auth login --key verifies against the API and writes chmod-600 config", async () => {
