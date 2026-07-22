@@ -1,4 +1,4 @@
-import type { Ctx } from "../context.js";
+import { identifiesUser, type Ctx } from "../context.js";
 import { UsageError } from "../errors.js";
 import { api } from "../http.js";
 import { colors, emit, renderObject, shortDate, type Write } from "../output.js";
@@ -73,10 +73,25 @@ export const userCommands: Command[] = [
     path: ["whoami"],
     summary: "Show who you are authenticated as, and your plan (free/pro)",
     run: async (ctx) => {
-      if (ctx.token) {
+      if (!ctx.token && !ctx.apiKey) {
+        emit(ctx, { data: { auth: null, plan: null } }, (w) =>
+          w("Not authenticated. Run `launchy auth login`."),
+        );
+        return;
+      }
+
+      const authKind = ctx.token
+        ? "user-token"
+        : identifiesUser(ctx)
+          ? "personal-api-key"
+          : "app-api-key";
+
+      // A personal key identifies a user just as a session token does, so ask
+      // the server rather than assuming. Only fall back if it declines.
+      if (authKind !== "app-api-key") {
         const profile = profileOf(await api(ctx, "GET", "/api/me", { auth: "user" }));
         const plan = planOf(profile);
-        emit(ctx, { data: { auth: "user-token", plan, profile } }, (w) => {
+        emit(ctx, { data: { auth: authKind, plan, profile } }, (w) => {
           const c = colors(ctx);
           const badge = plan === "pro" ? c.green("PRO") : c.dim("FREE");
           w(`${c.bold(String(profile.email ?? profile.clerk_id ?? "anonymous user"))}  [${badge}]`);
@@ -84,26 +99,21 @@ export const userCommands: Command[] = [
         });
         return;
       }
-      if (ctx.apiKey) {
-        emit(
-          ctx,
-          {
-            data: {
-              auth: "api-key",
-              plan: null,
-              note: "API keys authenticate the app, not a user — account commands need a user token (launchy auth login --token <jwt>).",
-            },
+
+      emit(
+        ctx,
+        {
+          data: {
+            auth: authKind,
+            plan: null,
+            note: "This key authenticates an application, not a user. Account commands need a personal key (lk_live_…) created in the Launchy app, or a user token.",
           },
-          (w) => {
-            const c = colors(ctx);
-            w(`Authenticated with an ${c.bold("API key")} (no user identity).`);
-            w(c.dim("Account commands need a user token: launchy auth login --token <jwt>"));
-          },
-        );
-        return;
-      }
-      emit(ctx, { data: { auth: null, plan: null } }, (w) =>
-        w("Not authenticated. Run `launchy auth login`."),
+        },
+        (w) => {
+          const c = colors(ctx);
+          w(`Authenticated with an ${c.bold("application API key")} (no user identity).`);
+          w(c.dim("For account commands, create a personal key in the Launchy app and run `launchy auth login --key <key>`."));
+        },
       );
     },
   },

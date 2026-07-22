@@ -24,11 +24,14 @@ before(async () => {
       res.writeHead(status, { "content-type": "application/json", ...headers });
       res.end(JSON.stringify(body));
     };
-    const authedByKey = req.headers["x-api-key"] === "testkey";
+    const personalKey = req.headers["x-api-key"] === "lk_live_personalkey123";
+    const authedByKey = req.headers["x-api-key"] === "testkey" || personalKey;
     const authedByUser = req.headers.authorization === "Bearer usertok";
 
     if (url.pathname === "/api/me") {
-      if (!authedByUser) return send(401, { error: "Unauthorized", message: "user token required", code: "UNAUTHORIZED" });
+      // A personal key identifies a user exactly as a session token does.
+      if (!authedByUser && !personalKey)
+        return send(401, { error: "Unauthorized", message: "user identity required", code: "UNAUTHORIZED" });
       return send(200, {
         id: "u1",
         clerk_id: "user_1",
@@ -50,6 +53,9 @@ before(async () => {
     }
     if (url.pathname === "/api/launches/lch_abc123") {
       return send(200, { data: LAUNCH });
+    }
+    if (url.pathname === "/api/launches/lch_abc123/subscribe") {
+      return send(200, { subscribed: req.method === "POST", launch_id: "lch_abc123" });
     }
     if (url.pathname === "/api/launches/missing") {
       return send(404, { error: "Not Found", message: "launch not found" });
@@ -121,12 +127,37 @@ test("whoami with a user token reports plan pro", async () => {
   assert.equal(body.data.profile.email, "scott@example.com");
 });
 
-test("whoami with only an API key explains the identity gap", async () => {
+test("whoami with an application key explains the identity gap", async () => {
   const r = await runCli(["whoami"]);
   assert.equal(r.code, 0, r.stderr);
   const body = JSON.parse(r.stdout);
-  assert.equal(body.data.auth, "api-key");
+  assert.equal(body.data.auth, "app-api-key");
   assert.equal(body.data.plan, null);
+});
+
+test("whoami with a personal key resolves the user and plan", async () => {
+  const r = await runCli(["whoami"], { LAUNCHY_API_KEY: "lk_live_personalkey123" });
+  assert.equal(r.code, 0, r.stderr);
+  const body = JSON.parse(r.stdout);
+  assert.equal(body.data.auth, "personal-api-key");
+  assert.equal(body.data.plan, "pro");
+  assert.equal(body.data.profile.email, "scott@example.com");
+});
+
+test("a personal key satisfies account commands", async () => {
+  const r = await runCli(["launches", "subscribe", "lch_abc123"], {
+    LAUNCHY_API_KEY: "lk_live_personalkey123",
+  });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(JSON.parse(r.stdout).data.subscribed, true);
+});
+
+test("an application key is refused for account commands, without a network call", async () => {
+  const r = await runCli(["me", "get"]);
+  assert.equal(r.code, 3);
+  const err = JSON.parse(r.stderr);
+  assert.equal(err.error.code, "AUTH_REQUIRED");
+  assert.match(err.error.message, /not a personal key/);
 });
 
 test("user-scoped command without token fails fast with exit 3", async () => {

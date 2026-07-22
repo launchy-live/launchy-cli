@@ -33,21 +33,25 @@ Every command has `--help` with examples. `launchy docs` prints the complete ref
 
 ## Authentication
 
-Two credentials, two capabilities:
-
-| Credential | Header | Unlocks |
-|---|---|---|
-| **API key** | `X-API-Key` | All launch, provider, site, rocket, booster, and visibility reads |
-| **User token** | `Authorization: Bearer <jwt>` | Account commands: `me`, `whoami`, subscribe, corrections |
+Create a **personal API key** in the Launchy app (Account → API keys). It starts with `lk_live_` and identifies you, so it unlocks everything the CLI can do — reads *and* account commands:
 
 ```bash
 # keep secrets out of shell history — "-" reads from stdin
 printf %s "$KEY" | launchy auth login --key -
 
 # or use environment variables (great for CI and agents)
-export LAUNCHY_API_KEY=…
-export LAUNCHY_TOKEN=…
+export LAUNCHY_API_KEY=lk_live_…
 ```
+
+The key is shown once, at creation, and can't be retrieved afterwards — only a hash is stored server-side. Revoke it any time from the same screen; revocation takes effect on the next request.
+
+| Credential | Header | Unlocks |
+|---|---|---|
+| **Personal API key** (`lk_live_…`) | `X-API-Key` | Everything: all reads, plus `me`, `whoami`, subscribe, corrections |
+| **User token** (Clerk JWT) | `Authorization: Bearer <jwt>` | Same as a personal key; short-lived, mostly useful for scripted app sessions |
+| **Application key** | `X-API-Key` | Reads only — it authenticates an app, not a person, so account commands reject it |
+
+For safety, personal keys cannot create or revoke other keys; that requires signing in to the app. A leaked key can't make itself permanent.
 
 Credentials are stored in `~/.config/launchy/config.json` (chmod 600) and are **verified against the API before being saved**. Precedence: flags → environment → config file. `launchy auth status` shows exactly what's active and where it came from, including token expiry.
 

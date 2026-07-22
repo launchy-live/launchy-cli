@@ -1,4 +1,4 @@
-import type { Ctx } from "./context.js";
+import { identifiesUser, type Ctx } from "./context.js";
 import { ApiError, CliError, EXIT, codeForStatus, exitCodeForStatus } from "./errors.js";
 
 export interface RequestOpts {
@@ -54,10 +54,12 @@ export async function api<T = any>(
   opts: RequestOpts = {},
 ): Promise<T> {
   const auth = opts.auth ?? "any";
-  if (auth === "user" && !ctx.token) {
+  if (auth === "user" && !identifiesUser(ctx)) {
     throw new CliError(
       "AUTH_REQUIRED",
-      "this command acts on your account and needs a user token. Run `launchy auth login --token <jwt>` or set LAUNCHY_TOKEN.",
+      ctx.apiKey
+        ? "this command acts on your account, but the configured API key is not a personal key. Create one in the Launchy app (it starts with `lk_live_`), then run `launchy auth login --key <key>`."
+        : "this command acts on your account and needs a personal API key or user token. Run `launchy auth login`.",
       EXIT.AUTH,
     );
   }

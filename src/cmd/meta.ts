@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import type { Ctx } from "../context.js";
-import { DEFAULT_BASE_URL } from "../context.js";
+import { DEFAULT_BASE_URL, identifiesUser } from "../context.js";
 import { UsageError } from "../errors.js";
 import { api } from "../http.js";
 import { colors, emit, printJson, readStdin, shortDate } from "../output.js";
@@ -64,8 +64,11 @@ function structuredDocs(commands: Command[]): unknown {
       raw: "`launchy api` prints the server response verbatim (no envelope normalization)",
     },
     auth: {
-      api_key: "header X-API-Key — read access to all launch/reference data; carries no user identity",
-      user_token: "header Authorization: Bearer <jwt> — required for me/subscribe/corrections",
+      personal_api_key:
+        "header X-API-Key: lk_live_… — a per-user key created in the Launchy app. Identifies you, so it satisfies account commands (me/subscribe/corrections) as well as all reads.",
+      application_api_key:
+        "header X-API-Key — a first-party app key. Reads all launch/reference data but carries no user identity, so account commands reject it.",
+      user_token: "header Authorization: Bearer <jwt> — a Clerk session token; equivalent to a personal key for these commands",
       plans: "GET /api/me reports is_pro; `launchy whoami` surfaces it as plan: free|pro",
       rate_limits:
         "the CLI honors Retry-After on 429 (auto-retries waits <=10s) and reports X-RateLimit-* via `launchy limits`",
@@ -145,7 +148,7 @@ export function makeMetaCommands(getAll: () => Command[]): Command[] {
       summary: "Your plan (free/pro) and any server-advertised rate limits",
       run: async (ctx: Ctx) => {
         let plan: string | null = null;
-        if (ctx.token) {
+        if (identifiesUser(ctx)) {
           try {
             const me = await api(ctx, "GET", "/api/me", { auth: "user" });
             const profile = me.data ?? me;

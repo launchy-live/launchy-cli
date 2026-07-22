@@ -43,8 +43,10 @@ test("dynamicCols omits id when rows have none, without duplicating keys", () =>
 });
 
 test("countdown renders both directions", () => {
-  const future = new Date(Date.now() + 26 * 3600e3).toISOString();
-  const past = new Date(Date.now() - 90 * 60e3).toISOString();
+  // Offset by an extra 30s so elapsed test time cannot tip the truncated
+  // minute across a boundary and make this flaky.
+  const future = new Date(Date.now() + 26 * 3600e3 + 30e3).toISOString();
+  const past = new Date(Date.now() - 90 * 60e3 - 30e3).toISOString();
   assert.match(countdown(future), /^T-1d 2h$/);
   assert.match(countdown(past), /^T\+1h 30m$/);
 });

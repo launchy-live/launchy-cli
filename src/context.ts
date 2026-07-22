@@ -3,6 +3,17 @@ import { loadConfig } from "./config.js";
 
 export const DEFAULT_BASE_URL = "https://api.launchy.live";
 
+/** Prefix of a per-user API key, as issued by `POST /api/keys`. */
+export const USER_KEY_PREFIX = "lk_live_";
+
+/**
+ * Whether the configured credentials identify a specific user. Per-user API
+ * keys do; the first-party app key does not, and neither does no credential.
+ */
+export function identifiesUser(ctx: Pick<Ctx, "token" | "apiKey">): boolean {
+  return Boolean(ctx.token || ctx.apiKey?.startsWith(USER_KEY_PREFIX));
+}
+
 export interface RateLimitInfo {
   limit?: number;
   remaining?: number;

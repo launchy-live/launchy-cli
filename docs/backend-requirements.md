@@ -7,25 +7,25 @@ This doc specs the (small) backend work in `launchy-agents` that the CLI is
 already built to consume. Nothing here blocks releasing the CLI; each section
 lights up automatically when the server ships it.
 
-## 1. Per-user API keys (required for public launch)
+## 1. Per-user API keys — ✅ IMPLEMENTED
 
-Today `X-API-Key` only matches the shared `APP_API_KEY`/`INTERNAL_API_KEY`
-(`src/middleware/auth.ts`), which cannot be handed to the public. Add:
+Shipped in `launchy-agents` (migration `0012_user_api_keys.sql`, PR #116). The
+CLI consumes it with no further changes:
 
-- **Table** `user_api_keys`: `id`, `user_id` (FK → users), `name`,
-  `key_hash` (SHA-256 of the secret; never store plaintext), `prefix`
-  (first 8 chars for display), `created_at`, `last_used_at`, `revoked_at`.
-- **Key format**: `lk_live_<32 random base62 chars>`. The prefix makes leaked
-  keys grep-able and lets support identify a key without seeing it.
-- **Middleware**: in `requireApiAccess`, when `X-API-Key` is not the app key,
-  hash it and look up `user_api_keys`. On match, set the same user context a
-  Clerk JWT would (including pro status), so per-user routes (`/api/me`,
-  subscribe, corrections) work with a key — the CLI then needs no Clerk JWT.
-- **Issuance**: `POST /api/keys` (Clerk Bearer, from the apps' account screen)
-  returning the plaintext secret exactly once; `GET /api/keys`;
-  `DELETE /api/keys/:id`. The mobile/web account settings page is the natural
-  home for "Create CLI key".
-- Keep `APP_API_KEY` working unchanged for the first-party apps.
+- `user_api_keys` stores a SHA-256 hash, never plaintext; the secret is
+  returned once from `POST /api/keys` and is unrecoverable after.
+- Keys are `lk_live_…`; `requireApiAccess` resolves one to the same request
+  identity a Clerk JWT establishes, so `/api/me`, subscribe and corrections
+  work from a key alone.
+- `GET /api/keys` lists, `DELETE /api/keys/:id` soft-revokes. Management
+  requires a Clerk session — a key may not manage keys, so a leaked key
+  cannot make itself permanent.
+- `APP_API_KEY` keeps working unchanged for the first-party apps, and still
+  carries no user identity.
+
+Remaining work is **client-side only**: the mobile/web account screen needs a
+"Create CLI key" surface calling `POST /api/keys` and showing the plaintext
+once. Until that ships there is no user-facing way to obtain a key.
 
 ## 2. Plan-tiered rate limiting (required to make free/pro mean something)
 
