@@ -32,7 +32,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/launchy/launchy-cli.git"
+    "url": "https://github.com/scott-edwards/launchy-cli.git"
+  },
+  "homepage": "https://github.com/scott-edwards/launchy-cli#readme",
+  "bugs": {
+    "url": "https://github.com/scott-edwards/launchy-cli/issues"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
