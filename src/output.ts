@@ -67,6 +67,19 @@ export function truncate(s: string, n: number): string {
   return s.length > n ? s.slice(0, Math.max(0, n - 1)) + "…" : s;
 }
 
+const ISO_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/;
+
+/**
+ * Render a value for display, collapsing ISO-8601 timestamps to the compact
+ * `YYYY-MM-DD HH:MMZ` form. API payloads carry millisecond precision that is
+ * never useful on screen and makes every table column ~9 characters wider.
+ */
+export function displayValue(v: unknown): string {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+  return ISO_DATETIME.test(s) ? shortDate(s) : s;
+}
+
 export interface Col {
   key: string;
   label: string;
@@ -74,10 +87,7 @@ export interface Col {
 }
 
 export function table(rows: Array<Record<string, unknown>>, cols: Col[]): string {
-  const val = (r: Record<string, unknown>, k: string): string => {
-    const v = r[k];
-    return v === null || v === undefined ? "" : String(v);
-  };
+  const val = (r: Record<string, unknown>, k: string): string => displayValue(r[k]);
   const widths = cols.map((c) =>
     Math.min(
       c.max ?? 40,
@@ -107,6 +117,9 @@ export function dynamicCols(
   maxCols = 6,
 ): Col[] {
   const keys: string[] = [];
+  // `id` is the handle every follow-up command takes, so it leads when present
+  // rather than landing wherever key iteration happens to put it.
+  if (rows.some((r) => isScalar(r.id))) keys.push("id");
   for (const k of preferred) {
     if (keys.length >= maxCols) break;
     if (rows.some((r) => isScalar(r[k]))) keys.push(k);
@@ -131,7 +144,7 @@ export function renderObject(
   for (const [k, v] of Object.entries(obj)) {
     if (opts.skip?.includes(k)) continue;
     if (v === null || v === undefined || typeof v === "object") continue;
-    w(`${c.dim((k + ":").padEnd(lw))} ${truncate(String(v), 120)}`);
+    w(`${c.dim((k + ":").padEnd(lw))} ${truncate(displayValue(v), 120)}`);
   }
 }
 

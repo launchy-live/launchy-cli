@@ -54,15 +54,18 @@ function renderLaunchDetail(ctx: Ctx, l: any): (w: Write) => void {
   return (w) => {
     w(c.bold(String(l.mission_name ?? l.id)));
     w();
+    // Widest label below is "go probability" — pad past it so no row's value
+    // is pushed out of the value column.
     const kv = (label: string, value: unknown): void => {
       if (value === undefined || value === null || value === "") return;
-      w(`${c.dim((label + ":").padEnd(14))} ${value}`);
+      w(`${c.dim((label + ":").padEnd(16))} ${value}`);
     };
     kv("id", l.id);
     kv("status", statusStyled(c, String(l.status ?? "")));
     kv("t-0", l.target_date ? `${t0Cell(l)}${l.target_precision ? ` (precision: ${l.target_precision})` : ""}` : undefined);
     if (l.window_open || l.window_close) {
-      kv("window", `${l.window_open ?? "?"} → ${l.window_close ?? "?"}`);
+      const bound = (v: unknown): string => (v ? shortDate(String(v)) : "?");
+      kv("window", `${bound(l.window_open)} → ${bound(l.window_close)}`);
     }
     kv("provider", l.provider?.name ?? providerName(l));
     kv("site", l.site?.name ?? l.launch_site?.name);

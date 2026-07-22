@@ -3,7 +3,7 @@ import type { Ctx } from "../context.js";
 import { DEFAULT_BASE_URL } from "../context.js";
 import { UsageError } from "../errors.js";
 import { api } from "../http.js";
-import { colors, emit, printJson, readStdin } from "../output.js";
+import { colors, emit, printJson, readStdin, shortDate } from "../output.js";
 import { GLOBAL_FLAGS, type Command } from "../registry.js";
 
 const require = createRequire(import.meta.url);
@@ -13,6 +13,20 @@ export function cliVersion(): string {
 }
 
 const HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * X-RateLimit-Reset is conventionally epoch seconds, which is unreadable on
+ * screen. Render it as a clock time plus the wait, tolerating an ISO value
+ * from servers that send one instead.
+ */
+function formatReset(reset: string): string {
+  const epoch = Number(reset);
+  const ms = Number.isFinite(epoch) ? epoch * 1000 : Date.parse(reset);
+  if (!Number.isFinite(ms)) return reset;
+  const seconds = Math.max(0, Math.round((ms - Date.now()) / 1000));
+  const relative = seconds >= 60 ? `in ${Math.round(seconds / 60)}m` : `in ${seconds}s`;
+  return `${shortDate(new Date(ms).toISOString())} (${relative})`;
+}
 
 const EXIT_CODE_DOCS: Record<string, string> = {
   "0": "success",
@@ -149,7 +163,7 @@ export function makeMetaCommands(getAll: () => Command[]): Command[] {
           if (rateLimit) {
             if (rateLimit.limit !== undefined) w(`rate limit: ${rateLimit.limit} requests/window`);
             if (rateLimit.remaining !== undefined) w(`remaining:  ${rateLimit.remaining}`);
-            if (rateLimit.reset !== undefined) w(`resets:     ${rateLimit.reset}`);
+            if (rateLimit.reset !== undefined) w(`resets:     ${formatReset(rateLimit.reset)}`);
           } else {
             w(c.dim("The server is not advertising rate limits for these credentials."));
           }

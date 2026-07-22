@@ -1,7 +1,7 @@
 import type { Ctx } from "../context.js";
 import { UsageError } from "../errors.js";
 import { api } from "../http.js";
-import { colors, emit, renderObject, type Write } from "../output.js";
+import { colors, emit, renderObject, shortDate, type Write } from "../output.js";
 import type { Command } from "../registry.js";
 
 const SETTABLE: Record<string, string> = {
@@ -25,7 +25,7 @@ function renderProfile(ctx: Ctx, profile: any): (w: Write) => void {
     const plan = planOf(profile);
     const badge = plan === "pro" ? c.green("PRO") : c.dim("FREE");
     w(`${c.bold(String(profile.email ?? profile.clerk_id ?? profile.id ?? "you"))}  [${badge}]`);
-    if (profile.pro_expires_at) w(c.dim(`pro until ${profile.pro_expires_at}`));
+    if (profile.pro_expires_at) w(c.dim(`pro until ${shortDate(String(profile.pro_expires_at))}`));
     w();
     renderObject(w, c, profile, { skip: ["email"] });
   };
@@ -80,7 +80,7 @@ export const userCommands: Command[] = [
           const c = colors(ctx);
           const badge = plan === "pro" ? c.green("PRO") : c.dim("FREE");
           w(`${c.bold(String(profile.email ?? profile.clerk_id ?? "anonymous user"))}  [${badge}]`);
-          if (profile.pro_expires_at) w(c.dim(`pro until ${profile.pro_expires_at}`));
+          if (profile.pro_expires_at) w(c.dim(`pro until ${shortDate(String(profile.pro_expires_at))}`));
         });
         return;
       }
